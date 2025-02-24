@@ -28,7 +28,7 @@ def reframe_video(input_video, output_video, width=1080, height=1920):
         print(f"Error reframing video: {e}")
 
 # Function to download TikTok videos
-def download_tiktok_videos(urls, output_dir, category, progress_callback=None):
+def download_tiktok_videos(urls, output_dir, category, update_status_callback=None):
     category_dir = os.path.join(output_dir, category)
     if not os.path.exists(category_dir):
         os.makedirs(category_dir)
@@ -37,24 +37,38 @@ def download_tiktok_videos(urls, output_dir, category, progress_callback=None):
         'outtmpl': os.path.join(category_dir, '%(id)s.%(ext)s'),  # Save videos with ID to prevent long names
         'quiet': False,  # Show download progress
         'restrictfilenames': True,  # Restrict filenames to only valid characters
-        'progress_hooks': [progress_callback] if progress_callback else [],
+        'progress_hooks': [update_status_callback] if update_status_callback else [],
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         for i, url in enumerate(urls):
-            try:
-                print(f"Downloading video {i+1} of {len(urls)} ({category}): {url}")
-                ydl.download([url])  # Download the video
-            except Exception as e:
-                print(f"Failed to download {url}: {e}")
+            retries = 3  # Number of retries
+            for attempt in range(retries):
+                try:
+                    print(f"Downloading video {i+1} of {len(urls)} ({category}): {url} (Attempt {attempt + 1})")
+                    ydl.download([url])  # Download the video
+                    break  # Exit retry loop if successful
+                except Exception as e:
+                    print(f"Attempt {attempt + 1} failed: {e}")
+                    if attempt == retries - 1:  # If all retries failed
+                        if update_status_callback:
+                            update_status_callback({"status": "error", "url": url, "error": str(e)})
+                        # Delete incomplete .part files
+                        for file in os.listdir(category_dir):
+                            if file.endswith(".part"):
+                                os.remove(os.path.join(category_dir, file))
 
-# Function to reframe all videos in a folder
+# Function to reframe all videos in a folder and save them in a subfolder
 def reframe_all_videos_in_folder(folder_path, width=1080, height=1920):
+    reframed_dir = os.path.join(folder_path, "reframed")
+    if not os.path.exists(reframed_dir):
+        os.makedirs(reframed_dir)
+
     for root, dirs, files in os.walk(folder_path):
         for filename in files:
-            if filename.endswith(".mp4"):  # Ensure we're only processing MP4 files
+            if filename.endswith(".mp4") and not filename.startswith("reframed_"):  # Ensure we're only processing original MP4 files
                 input_video = os.path.join(root, filename)
-                output_video = os.path.join(root, f"reframed_{filename}")
+                output_video = os.path.join(reframed_dir, f"reframed_{filename}")
                 reframe_video(input_video, output_video, width, height)
 
 # GUI Application
@@ -62,13 +76,14 @@ class TikTokDownloaderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("TikTok Video Downloader")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x600")
 
         # Variables
         self.output_dir = tk.StringVar()
         self.categories = []  # List to store categories
         self.category_urls = {}  # Dictionary to store URLs by category
         self.selected_category = tk.StringVar()  # Currently selected category
+        self.url_status = {}  # Dictionary to store status of each URL
 
         # GUI Elements
         tk.Label(root, text="Output Folder:").grid(row=0, column=0, padx=10, pady=10)
@@ -92,12 +107,14 @@ class TikTokDownloaderApp:
         tk.Button(root, text="Add URLs", command=self.add_urls).grid(row=4, column=1, padx=10, pady=10)
 
         # Treeview to display URLs for the selected category
-        self.tree = ttk.Treeview(root, columns=("No.", "URLs", "Delete"), show="headings")
+        self.tree = ttk.Treeview(root, columns=("No.", "URLs", "Status", "Delete"), show="headings")
         self.tree.heading("No.", text="No.")
         self.tree.heading("URLs", text="URLs")
+        self.tree.heading("Status", text="Status")
         self.tree.heading("Delete", text="Delete")
         self.tree.column("No.", width=50)
         self.tree.column("URLs", width=400)
+        self.tree.column("Status", width=150)
         self.tree.column("Delete", width=100)
         self.tree.grid(row=5, column=0, columnspan=3, padx=10, pady=10)
 
@@ -147,6 +164,7 @@ class TikTokDownloaderApp:
         urls = self.urls_text.get("1.0", tk.END).strip().splitlines()
         if urls:
             self.category_urls[category].extend(urls)
+            self.url_status.update({url: "Not Started" for url in urls})
             self.update_url_list()
             self.urls_text.delete("1.0", tk.END)
             messagebox.showinfo("Success", f"Added {len(urls)} URLs to category '{category}'.")
@@ -159,14 +177,15 @@ class TikTokDownloaderApp:
         self.tree.delete(*self.tree.get_children())
         if category:
             for i, url in enumerate(self.category_urls.get(category, [])):
-                self.tree.insert("", "end", values=(i+1, url, "Delete"))
+                status = self.url_status.get(url, "Not Started")
+                self.tree.insert("", "end", values=(i+1, url, status, "Delete"))
 
     # Function to handle Treeview click events
     def on_treeview_click(self, event):
         region = self.tree.identify("region", event.x, event.y)
         if region == "cell":
             column = self.tree.identify_column(event.x)
-            if column == "#3":  # Check if the "Delete" column was clicked
+            if column == "#4":  # Check if the "Delete" column was clicked
                 item = self.tree.identify_row(event.y)
                 url = self.tree.item(item, "values")[1]
                 self.delete_url(url)
@@ -176,6 +195,7 @@ class TikTokDownloaderApp:
         category = self.selected_category.get()
         if category in self.category_urls:
             self.category_urls[category].remove(url)
+            self.url_status.pop(url, None)
             self.update_url_list()
             messagebox.showinfo("Success", f"URL '{url}' deleted from category '{category}'.")
 
@@ -195,16 +215,29 @@ class TikTokDownloaderApp:
 
     # Function to download all categories
     def download_all(self, output_dir):
-        def update_progress(d):
+        def update_status(d):
+            # Use the URL if available; otherwise, fall back to the filename
+            current_url = d.get("url", d.get("filename", "unknown"))
+            
             if d["status"] == "finished":
+                self.url_status[current_url] = "Finished"
                 self.progress["value"] += 1
                 percentage = (self.progress["value"] / self.progress["maximum"]) * 100
-                self.progress_label.config(text=f"Downloading {d['filename']} - {percentage:.2f}%")
+                self.progress_label.config(text=f"Downloading {d.get('filename', 'unknown')} - {percentage:.2f}%")
+                self.update_url_list()
+                self.root.update_idletasks()
+            elif d["status"] == "downloading":
+                self.url_status[current_url] = f"Downloading ({d.get('_percent_str', '').strip()})"
+                self.update_url_list()
+                self.root.update_idletasks()
+            elif d["status"] == "error":
+                self.url_status[current_url] = f"Error: {d.get('error', 'Unknown error')}"
+                self.update_url_list()
                 self.root.update_idletasks()
 
         for category, urls in self.category_urls.items():
             if urls:
-                download_tiktok_videos(urls, output_dir, category, update_progress)
+                download_tiktok_videos(urls, output_dir, category, update_status)
                 reframe_all_videos_in_folder(os.path.join(output_dir, category))
         messagebox.showinfo("Success", "All videos downloaded and reframed!")
 
@@ -232,14 +265,27 @@ class TikTokDownloaderApp:
 
     # Function to download the selected category
     def download_selected_category(self, output_dir, category):
-        def update_progress(d):
+        def update_status(d):
+            # Use the URL if available; otherwise, fall back to the filename
+            current_url = d.get("url", d.get("filename", "unknown"))
+            
             if d["status"] == "finished":
+                self.url_status[current_url] = "Finished"
                 self.progress["value"] += 1
                 percentage = (self.progress["value"] / self.progress["maximum"]) * 100
-                self.progress_label.config(text=f"Downloading {d['filename']} - {percentage:.2f}%")
+                self.progress_label.config(text=f"Downloading {d.get('filename', 'unknown')} - {percentage:.2f}%")
+                self.update_url_list()
+                self.root.update_idletasks()
+            elif d["status"] == "downloading":
+                self.url_status[current_url] = f"Downloading ({d.get('_percent_str', '').strip()})"
+                self.update_url_list()
+                self.root.update_idletasks()
+            elif d["status"] == "error":
+                self.url_status[current_url] = f"Error: {d.get('error', 'Unknown error')}"
+                self.update_url_list()
                 self.root.update_idletasks()
 
-        download_tiktok_videos(self.category_urls[category], output_dir, category, update_progress)
+        download_tiktok_videos(self.category_urls[category], output_dir, category, update_status)
         reframe_all_videos_in_folder(os.path.join(output_dir, category))
         messagebox.showinfo("Success", f"Videos for category '{category}' downloaded and reframed!")
 
