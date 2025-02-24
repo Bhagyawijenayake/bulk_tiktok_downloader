@@ -16,7 +16,7 @@ A Python-based GUI application to download TikTok videos, organize them into cat
 
 If you don't want to install Python and dependencies, you can download the pre-built executable:
 
-- **Windows**: [Download TikTok Downloader (ZIP)](tiktok_downloader.zip)
+- **Windows**: [Download TikTok Downloader (ZIP)](https://github.com/Bhagyawijenayake/bulk_tiktok_downloader/raw/main/tiktok_downloader.zip)
   - Extract the `.zip` file and run `tiktok_downloader.exe`.
 
 ---
@@ -37,5 +37,5 @@ If you don't want to install Python and dependencies, you can download the pre-b
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/your-username/tiktok-downloader.git
-   cd tiktok-downloader
+   git clone https://github.com/Bhagyawijenayake/bulk_tiktok_downloader.git
+   cd bulk_tiktok_downloader
