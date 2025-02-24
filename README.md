@@ -122,6 +122,6 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 ## Contact
 
 For questions or feedback, feel free to reach out:
-- **Bhagya Wijenayake**: [Your Email](mailto:bhagyasudaraka98@gmail.com)
+- **Bhagya Wijenayake**: [bhagyasudaraka98@gmail.com](mailto:bhagyasudaraka98@gmail.com)
 - **GitHub**: [Bhagyawijenayake](https://github.com/Bhagyawijenayake)
 
